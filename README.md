@@ -1,6 +1,6 @@
 # Open Ligeng
 
-一个本地运行的中文聊天界面和 HTTP 推理接口，加载 Qwen2.5-7B-Instruct 与第 2 轮 LoRA。模型回复是风格模拟。
+一个本地运行的中文聊天界面和 HTTP 推理接口，加载 Qwen2.5-7B-Instruct 与第 2 轮 LoRA。模型回复是ligeng风格模拟。
 
 需要 Python 3.10+、支持 BF16 的 NVIDIA CUDA GPU，以及能容纳 7B 权重和生成缓存的显存（建议 24 GB）。先根据系统和 CUDA 版本安装 [PyTorch](https://pytorch.org/get-started/locally/)，然后运行：
 

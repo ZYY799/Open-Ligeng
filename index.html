@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Ligeng</title>
+<style>
+:root{color-scheme:light;--bg:#fff;--muted:#585f5a;--rail:#f6f7f5;--line:#e3e7e3;--ink:#202522;--accent:#226047}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--bg);font:15px/1.6 system-ui,sans-serif}button,textarea{font:inherit}button{cursor:pointer}
+.app{display:grid;grid-template-columns:210px minmax(0,1fr);height:100dvh;min-height:340px}aside{padding:21px 15px;background:var(--rail);border-right:1px solid var(--line)}.brand{font-size:18px;font-weight:700;margin:0 0 16px}.new{background:white;border:1px solid #cdd5ce;border-radius:9px;padding:6px 10px;color:var(--ink)}
+main{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0}header{border-bottom:1px solid var(--line);padding:13px 24px;display:flex;align-items:center;justify-content:space-between}h1{font-size:17px;margin:0}header span,.note{color:var(--muted);font-size:12px}
+#log{overflow:auto;overscroll-behavior:contain;padding:20px max(18px,calc((100% - 720px)/2));min-height:0}.empty{display:grid;place-content:center;min-height:100%;text-align:center;color:var(--muted)}.empty b{font-size:26px;color:var(--ink)}
+.msg{margin-bottom:18px;animation:enter .16s ease-out}.msg strong{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}.msg p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.you{display:flex;flex-direction:column;align-items:flex-end}.you p{padding:7px 12px;border-radius:15px 15px 4px 15px;background:#edf2ed;max-width:90%}
+footer{border-top:1px solid var(--line);padding:12px 16px}form{display:flex;align-items:flex-end;gap:10px;border:1px solid #cad5cd;border-radius:22px;padding:7px 8px 7px 15px;max-width:720px;margin:auto;transition:border-color .15s}form:focus-within{border-color:var(--accent)}
+textarea{width:100%;border:0;outline:0;min-height:34px;max-height:120px;resize:none;background:transparent;padding:5px 0}.send{border:0;border-radius:50%;width:36px;height:36px;flex:none;color:white;background:var(--accent);font-size:20px}.send:disabled{background:#e2e7e2;color:#657268}.note{text-align:center;margin:5px 0 0}
+@keyframes enter{from{opacity:0;transform:translateY(4px)}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media(max-width:680px){.app{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}aside{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border:0;border-bottom:1px solid var(--line)}.brand{margin:0}header{padding-inline:14px}}
+</style>
+<div class="app">
+ <aside><p class="brand">Open Ligeng</p><button id="new" class="new" type="button">＋ 新对话</button></aside>
+ <main>
+  <header><h1>对话</h1><span>Qwen2.5 7B · LoRA</span></header>
+  <div id="log" role="log" aria-label="对话"></div>
+  <footer>
+   <form id="form"><textarea id="input" rows="1" maxlength="600" aria-label="消息" placeholder="发送消息"></textarea><button id="send" class="send" type="submit" aria-label="发送" disabled>↑</button></form>
+   <p class="note">回复由模型生成 · 刷新页面会清空对话</p>
+  </footer>
+ </main>
+</div>
+<script>
+const el=id=>document.getElementById(id), log=el('log'), input=el('input'), send=el('send');
+let messages=[], pending=false, controller, revision=0;
+function add(who,text,you=false){
+ const d=document.createElement('div');d.className='msg'+(you?' you':'');
+ const n=document.createElement('strong');n.textContent=who;
+ const p=document.createElement('p');p.textContent=text;
+ d.append(n,p);log.append(d);log.scrollTop=log.scrollHeight;
+ return d;
+}
+function fit(){
+ input.style.height='auto';input.style.height=Math.min(input.scrollHeight,120)+'px';
+ send.disabled=pending||!input.value.trim();
+}
+function reset(){
+ revision++;controller?.abort();pending=false;messages=[];log.replaceChildren();
+ const d=document.createElement('div');d.className='empty';
+ const b=document.createElement('b');b.textContent='想聊点什么？';d.append(b,'输入一句话开始对话。');log.append(d);
+ input.value='';fit();input.focus();
+}
+el('new').addEventListener('click',reset);input.addEventListener('input',fit);
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();if(!send.disabled)el('form').requestSubmit();}});
+el('form').addEventListener('submit',async e=>{
+ e.preventDefault();if(send.disabled)return;
+ const current=revision, text=input.value.trim();
+ log.querySelector('.empty')?.remove();add('你',text,true);
+ const waiting=add('Open Ligeng','正在生成…');
+ const turns=[...messages.slice(-6),{role:'user',content:text}];
+ while(turns.length>1&&turns.reduce((n,t)=>n+Array.from(t.content).length,0)>600)turns.splice(0,2);
+ controller=new AbortController();const request=controller;
+ const timeout=setTimeout(()=>request.abort(),90000);
+ pending=true;input.value='';fit();
+ try{
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:turns}),signal:request.signal});
+  const data=await r.json();if(!r.ok||!data.reply)throw Error('生成失败，请重试。');
+  if(revision===current){waiting.querySelector('p').textContent=data.reply;messages=[...turns,{role:'assistant',content:data.reply}].slice(-6);log.scrollTop=log.scrollHeight;}
+ }catch(err){
+  if(revision===current){waiting.querySelector('p').textContent=err.name==='AbortError'?'生成超时，请重试。':'生成失败，请重试。';input.value=text;}
+ }finally{clearTimeout(timeout);if(revision===current){pending=false;fit();input.focus();}}
+});
+reset();
+</script>
+</html>
